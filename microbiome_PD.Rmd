@@ -1,0 +1,359 @@
+---
+title: "Microbiome PD analysis"
+author: "xxn"
+date: "`r paste0('Initiated on 2019 August 22, compiled on ', format(Sys.time(), '%Y %b %d'))`"
+output:
+  html_document:
+    chunk_output_type: console
+    code_folding: hide
+    editor_options: null
+    fig_height: 8
+    fig_width: 8
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+    indent: True
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = F, message = F)
+```
+
+#After preprocessing of Fastq seq
+
+
+```{r message=FALSE,echo=F,warning=F}
+library(tidyverse)
+library(phyloseq)
+library(dada2)
+library(DECIPHER)
+library(phangorn)
+library(gridExtra)
+library(plotly)
+library(ggplot2)
+library(readxl)
+library(kableExtra)
+library(knitr)
+library(janitor)
+library(kableExtra)
+library(knitr)
+```
+
+```{r}
+load(file = "otu_0.RData")
+set.seed(100)
+dir_path <- "./FASTQ_Generation_2019-08-25_12_19_07Z-1341381/"
+data_path <- list.files(dir_path)
+file_path <- c()
+fnFs <- c()
+fnRs <- c()
+sampleNames <- c()
+for (i in 1:(length(data_path) - 1)){
+  file_path[i] = paste0(dir_path,data_path[i],collapse = "/")
+  fnFs0 <- sort(list.files(file_path[i], pattern="_R1_001.fastq"))
+  fnRs0 <- sort(list.files(file_path[i], pattern="_R2_001.fastq")) 
+  fnFs[i] <- file.path(file_path[i], fnFs0)
+  fnRs[i] <- file.path(file_path[i], fnRs0)
+  sampleNames[i] <- strsplit(fnFs0, "_")[[1]][1]
+}
+
+```
+
+```{r}
+seqtabNoC = res$OTU
+taxTab = res$taxTab
+fitGTR = res$fitGTR
+
+```
+
+
+```{r}
+sample_sp = strsplit(sampleNames,"-t-")
+sample_info = data.frame(id = 0,t = 0)
+for (i in 1:length(sample_sp)){
+  if(length(sample_sp[[i]]) == 2){
+    id = sample_sp[[i]][1]
+    id = sub(pattern = "-",replacement = "/",x = id)
+    sample_time = sample_sp[[i]][2]
+    if (sample_time == "minus2"){
+      sample_time = -2
+    }else if(is.na(as.numeric(sample_time))){
+      sample_time = 0
+    }else{
+      sample_time = as.numeric(sample_time)
+    }
+    
+  }else{
+    id = sample_sp[[i]][1]
+    sample_time = NA
+  }
+  sample_info = rbind(sample_info,c(id,sample_time))
+}
+sample_info = sample_info[-1,]
+rownames(sample_info) = sampleNames
+rownames(seqtabNoC) = sampleNames
+```
+
+```{r}
+Sample.info = readxl::read_xlsx("../Project Database t=0 - de-identified.xlsx",sheet = 1)
+
+idx = match(sample_info$id,Sample.info$`Neurogenetics ID`)
+
+sample_info = cbind(sample_info,Sample.info[idx,c("Sex ID","Age","PD Status ID","Cohort Identifier ID","PD Age Dx")])
+colnames(sample_info) = c("id","t","Sex","Age","PD","Cohort","PD_Age")
+
+```
+
+```{r}
+ps <- phyloseq(otu_table(seqtabNoC, taxa_are_rows=FALSE), 
+               sample_data(sample_info), 
+               tax_table(taxTab),phy_tree(fitGTR$tree))
+dim(seqtabNoC)
+```
+
+# Filter
+```{r}
+control = c("18-124-t-0","18-106-t-0","18-121-t-0","19-201-t-0","18-204-t-0","18-231-t-0","19-013-t-0","18-129-t-0","18-263-t-0","19-009-t-0")
+ps <- subset_samples(ps, (!is.na(Age))&(!is.na(t))&(!is.na(PD))&(Cohort != "Longitudinal")&(t != 6)|(sample_names(ps) %in% control))
+ps@sam_data$PD[is.na(ps@sam_data$PD)] = "no"
+ps@sam_data$Cohort[is.na(ps@sam_data$Cohort)] = "Longitudinal"
+
+```
+
+In document, we got 88 samples, with 78 Parkinson’s disease patients and 10 controls. In this processing, we get total `r length(sample_names(ps))` samples, with 4 replicates, say, 18-033-t-0-rpt2, 18-033-t-0-rpt3, 18-069-t-0-rpt2, 18-069-t-0-rpt3.
+
+
+```{r}
+ps <- subset_taxa(ps, !is.na(Phylum) & !Phylum %in% c("", "uncharacterized"))
+
+prevdf = apply(X = otu_table(ps),
+               MARGIN = ifelse(taxa_are_rows(ps), yes = 1, no = 2),
+               FUN = function(x){sum(x > 0)})
+
+prevdf = data.frame(Prevalence = prevdf,
+                    TotalAbundance = taxa_sums(ps),
+                    tax_table(ps))
+plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
+```
+
+```{r}
+filterPhyla = c("Elusimicrobia","Spirochaetes","Candidatus_Saccharibacteria","Cyanobacteria/Chloroplast")
+# Filter entries with unidentified Phylum.
+ps1 = subset_taxa(ps, !Phylum %in% filterPhyla)
+
+prevdf1 = subset(prevdf, Phylum %in% get_taxa_unique(ps1, "Phylum"))
+ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps),color=Phylum)) +
+  # Include a guess for parameter
+  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) +  geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() +  xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
+  facet_wrap(~Phylum) + theme(legend.position="none")
+```
+
+```{r}
+prevalenceThreshold = floor(0.1 * nsamples(ps))
+keepTaxa = rownames(prevdf1)[(prevdf1$Prevalence >= prevalenceThreshold)]
+ps2 = prune_taxa(keepTaxa, ps)
+dim(ps2@otu_table)
+```
+
+Filter out taxa with frequency less than 0.1 among all samples. 
+
+# Unsupervised Result.
+
+## PCoA of wUniFrac&BC among different PD state.
+1. A quick PCoA using BC dissimilarity
+$BC=\frac{\sum_{i=1}^{n}|X_{ij}-X_{jk}|}{\sum_{i=1}^n(X_{ij}+X_{jk})}$
+
+```{r}
+pslog <- transform_sample_counts(ps2, function(x) log(1 + x))
+out.pcoa.log <- ordinate(pslog,  method = "MDS", distance = "bray")
+evals <- out.pcoa.log$values[,1]
+plot_ordination(pslog, out.pcoa.log, color = "t",
+                  shape = "Cohort") +
+  labs(col = "Time", shape = "Cohort")+
+  coord_fixed(sqrt(evals[2] / evals[1])) + theme_classic()
+
+```
+
+```{r}
+
+```
+
+Transformation: $X'_{ij}=log(X_{ij}+1)$
+Outlier: 18-203-t-2, most of its OTU is zero.
+
+2. Principal coordinates analysis of weighted UniFrac distances using the relative abundance of OTUs among the patient groups. . Also Bray-Curtis dissimilarity analysis according to health status.
+
+BC Dissimilarity.
+```{r}
+ps3 <- prune_samples(sample_names(ps2) != "18-203-t-2",ps2)
+ps3ra <- transform_sample_counts(ps3, function(x){x / sum(x)})
+#ps3ralog <- transform_sample_counts(ps3ra, function(x){log(x + eps)})
+
+#ps3ralog <- microbiome::transform(ps3ra,"clr")
+ps3ralog@sam_data$Cohort[ps3ralog@sam_data$Cohort == "Longitudinal"] = "Control"
+out.pcoa3ra <- ordinate(ps3ralog,  method = "MDS", distance = "bray")
+evals <- out.pcoa3ra$values[,1]
+plot_ordination(ps3ralog, out.pcoa3ra, color = "t",
+                  shape = "Cohort") +
+  labs(col = "Time", shape = "Cohort")+
+  coord_fixed(sqrt(evals[2] / evals[1])) + theme_classic()
+```
+
+wUniFrac Dissimilarity.  
+
+$wUniFrac=\frac{\sum_{i=1}^nb_i|p_i^A-p_i^B|}{\sum_{i=1}^nb_i(p_i^A+p_i^B)}$
+
+wUniFrac: Measure the dissimilarity from hierarchy clustering tree.  
+$b_{i}$: length of branch i.
+$p_i^A$: taxa proportions descending from the branch i for community A.  
+
+```{r message=F,warning=F,echo=F}
+out.pcoa3ra2 <- ordinate(ps3ra,  method = "MDS", distance = "wunifrac")
+evals <- out.pcoa3ra2$values[,1]
+plot_ordination(ps3ra, out.pcoa3ra2, color = "t",
+                  shape = "Cohort") +
+  labs(col = "Time", shape = "Cohort")+
+  coord_fixed(sqrt(evals[2] / evals[1]))
+```
+
+phylogenetic tree is generated using "phangorn" package (Bayesian method), which incorporate background phylogenetic knowledge (Proir distribution) and data information(Sampling). (Take very long time....)
+
+
+- After set high threshold (prevalence > 0.5, 67 variables left), still bad seperation in PCoA.
+
+- Batch Effect(?) is not significant in this dataset.
+
+```{r}
+out.pcoa3ra$vectors[c("18-033-t-0-rpt2","18-033-t-0-rpt3","18-033-t-0"),1:2]
+out.pcoa3ra$vectors[c("18-069-t-0-rpt2","18-069-t-0-rpt3","18-069-t-0"),1:2]
+```
+
+
+```{r}
+ps3ra2 <- subset_samples(ps3ra, t %in% c(-2,0))
+
+out.pcoa3ra3 <- ordinate(ps3ra2,  method = "MDS", distance = "bray")
+evals <- out.pcoa3ra3$values[,1]
+plot_ordination(ps3ra2, out.pcoa3ra3, color = "Cohort",
+                  shape = "t") +
+  labs(col = "Cohort", shape = "Time")+
+  coord_fixed(sqrt(evals[2] / evals[1]))
+
+```
+
+Even if restrict t=0, it is bad seperation among three groups.
+
+Consider the most extreme case: 
+```{r}
+ps3ra4 <- subset_samples(ps3ra, ((t == 0)&(PD == "no"))|(t == 4))
+
+out.pcoa3ra4 <- ordinate(ps3ra4,  method = "MDS", distance = "bray")
+evals <- out.pcoa3ra4$values[,1]
+plot_ordination(ps3ra4, out.pcoa3ra4, color = "Cohort",
+                  shape = "t") +
+  labs(col = "Cohort", shape = "Time")+
+  coord_fixed(sqrt(evals[2] / evals[1]))
+```
+
+
+
+## boxplot in different phylogenetic levels
+
+```{r}
+D = data.frame(rank = rank_names(ps3), number = 0)
+for(i in 1:length(rank_names(ps3))){
+  D[i,2] = length(table(ps3@tax_table[,i]))
+}
+D %>% kable %>% kable_styling()
+```
+
+
+
+boxplot in Phylum level.
+
+```{r}
+plot_abundance = function(physeq,title = "",
+                          Facet = "Order", Color = "Phylum"){
+  # Arbitrary subset, based on Phylum, for plotting
+  p1f = subset_taxa(physeq, Phylum %in% c("Firmicutes"))
+  mphyseq = psmelt(p1f)
+  mphyseq <- subset(mphyseq, Abundance > 0)
+  ggplot(data = mphyseq, mapping = aes_string(x = "sex",y = "Abundance",
+                              color = Color, fill = Color)) +
+    geom_violin(fill = NA) +
+    geom_point(size = 1, alpha = 0.3,
+               position = position_jitter(width = 0.3)) +
+    facet_wrap(facets = Facet) + scale_y_log10()+
+    theme(legend.position="none")
+}
+```
+
+```{r}
+eps <- 1e-5
+p <- ncol(ps3@otu_table)
+ps3ra3 <- transform_sample_counts(ps3ra2, function(x){(x + eps) / sum(x + p*eps)})
+mphyseq1 <- psmelt(ps3ra2)
+mphyseq2 <- psmelt(ps3ra3)
+```
+
+```{r}
+ggplot(data = mphyseq2, mapping = aes_string(x = "Phylum",y = "Abundance",
+                              color = "Cohort", fill = "Cohort")) +
+    geom_boxplot() + scale_y_log10() + theme(axis.text.x = element_text(angle = 45)) + labs(title = "boxplot of Phylum with all abundance")
+
+ggplot(data = mphyseq1, mapping = aes_string(x = "Phylum",y = "Abundance",
+                              color = "Cohort", fill = "Cohort")) +
+    geom_boxplot() + scale_y_log10() + theme(axis.text.x = element_text(angle = 45)) + labs(title = "boxplot of Phylum without 0 abundance")
+```
+
+A Ubiquituous Question: Is the zero the real one? 
+- Technical zero
+- Rounding zero
+- Assignment zero(<50% assignment)
+
+
+## density of alpha diversity
+```{r}
+library(vegan)
+```
+
+```{r}
+S_shannon <- diversity(ps3@otu_table, index = "shannon", MARGIN = 1)
+```
+
+```{r}
+S_simpson <- diversity(ps3@otu_table, index = "simpson", MARGIN = 1)
+```
+
+```{r}
+D_alpha <- ps3@sam_data
+D_alpha <- as.data.frame(as.matrix(D_alpha))
+D_shannon <- D_alpha
+D_shannon$shannon <- S_shannon
+D_simpson <- D_alpha
+D_simpson$simpson <- S_simpson
+
+ggplot(data = D_shannon, mapping = aes_string(x = "t",y = "shannon",
+                              color = "Cohort", fill = "Cohort")) +
+    geom_boxplot() + theme(axis.text.x = element_text(angle = 45)) + labs(title = "boxplot of shannon alpha diversity") 
+
+
+```
+```{r}
+ggplot(data = D_simpson, mapping = aes_string(x = "t",y = "simpson",
+                              color = "Cohort", fill = "Cohort")) +
+    geom_boxplot() + theme(axis.text.x = element_text(angle = 45)) + labs(title = "boxplot of simpson alpha diversity") 
+```
+
+```{r}
+Illustration <- subset_samples(ps3ra,id == "18/205")
+Illustration_melt <- psmelt(Illustration)
+ps_phylum <- Illustration_melt %>% group_by(id,t,Phylum) %>% summarise(Abundance = sum(Abundance))
+ggplot(ps_phylum,aes(x = t,y = Abundance,fill = Phylum)) + geom_bar(stat = "identity", width = 1) + scale_fill_viridis_d() + theme_classic()
+```
+

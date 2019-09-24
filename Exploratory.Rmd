@@ -1,0 +1,367 @@
+---
+title: "Microbiome PD"
+author: "xxn"
+date: "Aug,7,2019"
+output:
+  html_document:
+    chunk_output_type: console
+    code_folding: hide
+    editor_options: null
+    fig_height: 8
+    fig_width: 8
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+    indent: True
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r warning=FALSE,message=FALSE}
+library(tidyverse)
+library(readxl)
+library(reshape2)
+library(plotly)
+library(kableExtra)
+library(knitr)
+library(janitor)
+```
+
+```{r message = F}
+Data = readxl::read_excel("Project Database t=0 - de-identified.xlsx")
+```
+
+```{r}
+Data = Data[!is.na(Data[,2]),]
+Data = as.data.frame(Data)
+#dim(Data)
+```
+The data has `r dim(Data)[1]` samples and `r dim(Data)[2]` variables originally.
+
+# Initial Data Analysis 
+```{r}
+Overall =c("Neurogenetics ID","PD ID")
+Physiology = c("Age","Sex ID","Cohort Identifier ID","Height (cm)","Weight (kg)","BMI","Ethnicity ID")
+Social = c("Marital Status ID","Education ID","Employment ID","Income ID","Health Insurance ID","Support Services ID","Allied Health in Last Yr ID","Physio ID")
+#Overall PD
+PD1 = c("PD Duration","PD Phenotype ID","Late Onset >60 yrs ID","Genetic ID", "Rehabilitation ID")
+#complication PD1
+PD2 = c("Dyskinesia ID","On-Off Fluctuation ID","Wearing off ID","Anosmia ID")
+#Medicine(Not related to PD)
+Medicine1 = c("Neuroleptic Use ID","PD FHx ID","Pesticide ID")
+#Previous damage and lifestyle1(Specific lifestyle related to some damage)
+LifeStyle1 = c("Current Smoker ID","Prior Smoker ID","Never Smoked ID" ,"No. Cups (day)","EtOH Consumption ID","EtOH < 1 weekly ID","EtOH 1-6 days week ID","EtOH Daily ID")
+#DB
+DB =c("Diabetes ID","DM Duration (years)","HbA1c...109")
+#Medicine(Related to PD)
+Medicine2 =c("Medication PD Rx ID","L-Dopa ID","Duodopa ID","DBS ID","Apomorphine ID","Dopamine Agonist ID","MAOB ID","Anticholinergic ID","COMT ID","Amantidine ID")
+#Lifestyle2(general)
+LifeStyle2 = c("Physical Functioning","Role Functioning_Physical","Energy_Fatigue","Emotional Well-being","Social Functioning","General Health","Health Change","Physical Component Summary"  ,"Pain","Chronic Pain ID","Pain Score","Walk 1 km ID","Climb 1 flight stairs ID","IPAQ MET-min/week","IPAQ Sitting hr/day","IPAQ Category Score ID")
+#Mental
+Mental = c("Beck's Depression Inventory","Depressed ID","MOCA Visuospacial","MOCA Naming","MOCA Attention","MOCA Language","MOCA Abstraction","MOCA Delayed Recall","MOCA Orientation","MOCA total score","Mild Cognitive Impairment ID","PD Dementia ID")
+#gut and stools
+Stool = c("Constipation ID...72","Constipation ID...168","Cleveland Constipation Score","Strinaing ID","Hard Stools ID","Incomplete Evacucation ID","Manual Manoeuvres ID","Spontaneous bowel mvts / week ID","Rome IV Total Score","LDQ Score","Most troublesome symptom ID","Bristol Score")
+#NMSS non-sports PD phenotype
+NMSS = c("NMSS Cardiovascular","NMSS Sleep and fatigue","NMSS Mood and cognition","NMSS Perceptual problems","NMSS Attention and Memory","NMSS Gastrointestinal","NMSS Urinary","NMSS Sexual","NMSS Miscellaneous","NMSS Total Score")
+#PDQ Parkinson's Disease Questionaire
+PDQ = c("PDQ Mobility","PDQ ADL","PDQ Emotions","PDQ Stigma","PDQ Social","PDQ Cognitions","PDQ Communication","PDQ Body Pain","PDQ Summary Index")
+#UPDRS  Unified Parkinson Disease Rating Scale
+UPDRS = c("UPDRS Speech","UPDRS Facial Expression","UPDRS Rigidity","UPDRS Finger Tapping","UPDRS Hand Movements","UPDRS Pronation Supination","UPDRS Toe Tapping","UPDRS Leg Agility","UPDRS Rising from Chair","UPDRS Gait","UPDRS Freezing","UPDRS Postural Stability","UPDRS Posture","UPDRS Body Bradykinesia","UPDRS Postural Hand Tremor","UPDRS Kinetic Hand Tremor","UPDRS Rest Tremor","UPDRS Consistancy of Rest Tremor","UPDRS Total Score","Hoehn and Yahr Stage")
+#Diet
+Diet = c("Vegetarian Diet ID","Energy Intake (kcal/day)","Protein Intake (g/day)","Fat Intake (g/day)","Carbohydrate Intake (g/day)","Fibre Intake (g/day)")
+#Hormone and metabolomics
+Hormone = c("ESR","CRP","Total Cholesterol","LDL","HDL","Glucose","Trigs","HbA1c...240","Albumin")
+#Unknown
+UK = c("ICD ID","RBD ID","OT ID","Speech Pathologist ID","Dietician ID","Pack YHx","Type of Tabaco ID","Last Abx use (months)","Telemedicine Interest ID","Distance to clinic (km)","Total LED (mg)","Head Trauma ID")
+Comment = c("Clinical Notes","Abx Name and Indication","Comorbidities","Medications","FBC Comment","UEC Comment","LFTs Comment")
+
+Data1 = list(Overall = Data[,Overall],Physiology = Data[,Physiology],Social = Data[,Social],PD1 = Data[,PD1],PD2 = Data[PD2],Medicine1 = Data[,Medicine1],Medicine2 = Data[,Medicine2],LifeStyle1 = Data[,LifeStyle1],LifeStyle2 = Data[,LifeStyle2],DB = Data[,DB],Mental = Data[,Mental],Score_NMSS = Data[,NMSS],Score_PDQ = Data[,PDQ],Score_UPDRS = Data[,UPDRS],Stool = Data[,Stool],Diet = Data[,Diet],Hormone = Data[,Hormone],Unknown = Data[,UK],Comment = Data[,Comment])
+```
+
+This data contain lots of information about the samples, we roughly diveded the variables into `r length(Data1)` group : `r names(Data1)`. PD1 is the overall state of PD, PD2 is some complication of PD, Medicine1 and Medicine2 are medicine not related to PD and related to PD respectively, Lifestyle1 means some bad manner such as smoking and Lifestyle2 means general lifestyle such as exercise, DB means Diabites, Hormone is hormone and metabolomics index and Unknown contain the variables I don't know the meaning or not sure. Variables with "score" means some kind of test to quantify PD.  
+
+Following table shows the number of each kind of variables in each group.  
+
+```{r}
+IDA1 = data.frame(group_name = "",Continuous_variables = 0,Logical_variables = 0,Categorical_variables = 0)
+for (i in 1:length(Data1)){
+  cont = 0
+  logi = 0
+  cate = 0
+  null = 0
+  for(j in 1:ncol(Data1[[i]])){
+    t = na.omit(Data1[[i]][,j])
+    t = as.data.frame(t)
+    t = t[[1]]
+    t = as.factor(t)
+    if(length(levels(t)) == 2){
+      logi = logi + 1
+    }else if(length(t) == 0){
+      null = null + 1
+    }else if(length(levels(t))<5){
+      cate = cate + 1
+    }else{
+      cont = cont + 1
+    }
+    
+  }
+  temp = data.frame(group_name =names(Data1)[i],Continuous_variables =cont,Logical_variables =logi,Categorical_variables = cate)
+  IDA1 = rbind(IDA1,temp)
+}
+IDA1 = IDA1[-1,]
+IDA1 = IDA1[-19,]
+IDA1[14,2] = 20
+IDA1[14,4] = 0
+IDA1 %>% kable %>% kable_styling()
+```
+Next, we will analysis each group. 
+
+# Physiology
+Physiology contain variables "Age","Sex ID","Cohort Identifier ID","Height (cm)","Weight (kg)","BMI","Ethnicity ID".  
+
+```{r}
+PD = Data$`PD ID`
+Physiology_data = as.data.frame(Data[,Physiology])
+```
+
+The Frequency of PD, Sex, Cohort and Ethnicity are listed.  
+```{r}
+table(PD) %>% kable() %>% kable_styling()
+
+table(Physiology_data$`Sex ID`)%>% as.data.frame() %>% dplyr::rename(Sex = Var1) %>% kable() %>% kable_styling()
+
+table(Physiology_data$`Cohort Identifier ID`) %>% as.data.frame() %>% dplyr::rename(Cohort = Var1) %>% kable() %>% kable_styling()
+
+table(Physiology_data$`Ethnicity ID`)%>% as.data.frame() %>% dplyr::rename(Ethnicity = Var1)%>% kable() %>% kable_styling()
+
+```
+Are the Age distribution of PD vs non-PD show significant different?   
+```{r}
+ggplot(Physiology_data) + geom_histogram(aes(x = Age,y = ..density..),bins = 30) + labs(title = "Histogram of Age")
+ggplot(Physiology_data) + geom_density(aes(x = Age,color = as.factor(Data$`PD Status ID`)),alpha = 0, size = 1.25) + labs(color = "PD Status")
+```
+Are the BMI distribution of PD vs non-PD show significant different?  
+```{r}
+ggplot(Physiology_data) + geom_histogram(aes(x = BMI,y = ..density..),bins = 30) + labs(title = "Histogram of BMI")
+ggplot(Physiology_data) + geom_density(aes(x = BMI,color = as.factor(Data$`PD Status ID`)),alpha = 0, size = 1.25) + labs(color = "PD Status")
+```
+
+Whether PD shows some relationship with sex or Ethnicity?  
+```{r}
+tab1 = table(Physiology_data$`Sex ID`,PD) 
+tab1 %>% kable() %>% kable_styling()
+fisher.test(Physiology_data$`Sex ID`, PD)
+```
+
+```{r}
+tab2 = table(Physiology_data$`Ethnicity ID`,PD)
+tab2 %>% kable() %>% kable_styling()
+fisher.test(Physiology_data$`Ethnicity ID`, PD)
+```
+
+
+# PD Phenotype
+
+PD1 group contain variables "PD Duration","PD Phenotype ID", "Late Onset >60 yrs ID", "Genetic ID", "Rehabilitation ID". PD2 group contain variables  "Dyskinesia ID", "On-Off Fluctuation ID", "Wearing off ID", "Anosmia ID".  
+
+```{r}
+PD1_data = Data[,PD1]
+PD2_data = Data[,PD2]
+```
+
+The frequency of PD Phenotype is listed below.  
+
+```{r}
+table(PD1_data$`PD Phenotype ID`) %>% as.data.frame() %>% rename(PD_Phenotype = Var1) %>%  kable() %>% kable_styling()
+```
+
+
+Whether PD duration associated with phenotype and complication?  
+
+```{r}
+PD_pheno = as.factor(PD1_data$`PD Phenotype ID`)
+C_mean = c()
+C_sd = c()
+for(i in 1:length(levels(PD_pheno))){
+  C_mean[i] = mean(PD1_data$`PD Duration`[PD_pheno == levels(PD_pheno)[i]],na.rm = T)
+  C_sd[i] = sd(PD1_data$`PD Duration`[PD_pheno == levels(PD_pheno)[i]],na.rm = T)
+}
+
+PD_pheno0 = data.frame("name" = levels(PD_pheno),"mean" = C_mean,"sd" = C_sd)
+
+ggplot(PD_pheno0,aes(x = name,y = mean,fill = name)) + geom_bar(stat = "identity") + geom_errorbar(aes(x = name,ymin = mean-sd,ymax = mean+sd),width=0.4, alpha=0.5, size=0.7) + labs(x = "PD Phenotype",y = "Average duration of PD", fill = "PD Phenotype") + theme_classic()
+
+```
+
+```{r}
+C_mean1 = c()
+C_mean2 = c()
+C_sd1 = c()
+C_sd2 = c()
+for(i in 1:ncol(PD2_data)){
+  C_mean1[i] = mean(PD1_data$`PD Duration`[PD2_data[,i] == 'yes'],na.rm = T)
+  C_mean2[i] = mean(PD1_data$`PD Duration`[PD2_data[,i] == 'no'],na.rm = T)
+  C_sd1[i] = sd(PD1_data$`PD Duration`[PD2_data[,i] == 'yes'],na.rm = T)
+  C_sd2[i] = sd(PD1_data$`PD Duration`[PD2_data[,i] == 'no'],na.rm = T)
+}
+
+```
+
+```{r message=F}
+Complication_mean = data.frame(Complication = colnames(PD2_data),"With complication" = C_mean1,"Without complication" = C_mean2)
+Complication_sd = data.frame(Complication = colnames(PD2_data),"With complication" = C_sd1,"Without complication" = C_sd2)
+Complication_mean = melt(Complication_mean)
+Complication_sd = melt(Complication_sd)
+Complication = cbind(Complication_mean,Complication_sd$value)
+colnames(Complication) = c("Complication name"," Complication state","mean","sd")
+ggplot(Complication,aes(x = `Complication name`, y = mean,fill = Complication$` Complication state`)) + geom_bar(stat="identity", position=position_dodge()) + geom_errorbar(aes(x = `Complication name`,ymin = mean-sd,ymax = mean+sd), width=0.4, alpha=0.5, size=0.7,position = position_dodge(width=0.9))+labs(x = "",y = "Average Duration of PD",fill = "Complication state") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + theme_classic()
+```
+
+# Lifestyle
+
+Lifestyle1 group contain variables "Current Smoker ID","Prior Smoker ID","Never Smoked ID" ,"No. Cups (day)","EtOH Consumption ID","EtOH < 1 weekly ID","EtOH 1-6 days week ID","EtOH Daily ID". Lifestyle2 group contain variables  "Physical Functioning","Role Functioning_Physical","Energy_Fatigue","Emotional Well-being","Social Functioning","General Health","Health Change","Physical Component Summary"  ,"Pain","Chronic Pain ID","Pain Score","Walk 1 km ID","Climb 1 flight stairs ID","IPAQ MET-min/week","IPAQ Sitting hr/day","IPAQ Category Score".  
+
+```{r}
+LS1 = Data[,LifeStyle1]
+LS2 = Data[,LifeStyle2]
+```
+
+```{r}
+Smoking = LS1[,1:3]
+
+Smoking[Smoking == "yes"] = 1
+Smoking[Smoking == "no"] = 0
+
+Smoking[48,] = c(0,0,0)
+Smoking = apply(Smoking,1,which.max)
+Smoking[48] = NA
+for(i in 1:3){
+  Smoking[Smoking == i] = colnames(LS1)[i]
+}
+Smoking = as.factor(Smoking)
+
+```
+
+```{r}
+Drinking = LS1[,5:8]
+
+Drinking[54,] = c("yes","no","no","no")
+
+Drinking[Drinking == "yes"] = 1L
+Drinking[Drinking == "no"] = 0L
+
+Drinking = apply(Drinking,2,as.numeric)
+Drinking[,1] = 1 - Drinking[,1]
+
+Drinking = apply(Drinking,1,which.max)
+Drinking[54] = NA
+
+Drinking[Drinking == 1] = "EtOH = 0"
+for(i in 2:4){
+  Drinking[Drinking == i] = colnames(LS1)[4+i]
+}
+Drinking = as.factor(Drinking)
+```
+
+Whether smoking/drinking and PD has association?  
+```{r}
+tab3 = table(Smoking,PD)
+tab3 %>% kable() %>% kable_styling()
+fisher.test(Smoking,PD)
+```
+```{r}
+tab4 = table(Drinking,PD)
+tab4 %>% kable() %>% kable_styling()
+fisher.test(Drinking,PD)
+```
+Correlation between Quality of Life and PD.  
+```{r}
+temp = c()
+for(i in 1:nrow(LS2)){
+  temp[i] = sum(is.na(LS2[i,]))}
+LS2 = LS2[temp == 0,]
+PD_ls = PD[temp == 0]
+R1 = cor(LS2[,1:9],method = "spearman")
+```
+
+```{r}
+R1_melt = melt(R1)
+p = ggplot(R1_melt, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Spearman\nCorrelation") +
+  theme_minimal()+ # minimal theme
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 5, hjust = 1), axis.text.y = element_text(size=5),plot.title = element_text(hjust = 0.5)) + labs(x = "", y = "", title = "Spearman Correlation of Life quality variables")
+ggplotly(p)
+```
+
+```{r warning=F}
+
+t1 = LS2 %>% mutate(PD_ls = PD_ls) %>% select(-c(10,12,13,16)) %>% group_by(PD_ls) %>% summarise_all(funs(mean)) %>% gather("Item","value",-PD_ls) %>% rename(mean = value)
+t2 = LS2 %>% mutate(PD_ls = PD_ls) %>% select(-c(10,12,13,16)) %>% group_by(PD_ls) %>% summarise_all(funs(sd)) %>% gather("Item","value",-PD_ls) %>% rename(sd = value)
+t1 %>% mutate( sd = t2$sd ) %>% filter(Item != "IPAQ MET-min/week") %>% ggplot(aes(x = Item, y = mean, fill = PD_ls)) +geom_bar(position = "dodge",stat = "identity") + theme_classic() + theme(axis.text.x = element_text(angle = 45,vjust = 1, size = 5, hjust = 1)) + geom_errorbar(aes(x = Item, ymin = mean - 0.5*sd, ymax = mean + 0.5*sd), width=0.4, alpha=0.5, size=0.7,position = position_dodge(width=0.9)) + labs(fill = "PD")
+
+```
+
+# Score
+
+This group contained 3 kinds of clinical scores related to PD: NMSS, PDQ, SUPDRS.  
+
+```{r}
+SNMSS = Data[,NMSS]
+SPDQ = Data[,PDQ]
+SUPDRS = Data[,UPDRS]
+```
+
+
+Whether these scores showed some correlation.  
+```{r}
+Temp = cbind(SNMSS$`NMSS Total Score`,SPDQ$`PDQ Summary Index`,SUPDRS$`UPDRS Total Score`)
+colnames(Temp) = c("NMSS Total Score","PDQ Summary Index","UPDRS Total Score")
+R3 = cor(na.omit(Temp),method = "spearman")
+R3_melt = melt(R3)
+p = ggplot(R3_melt, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Spearman\nCorrelation") +
+  theme_minimal()+ # minimal theme
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 5, hjust = 1), axis.text.y = element_text(size=5),plot.title = element_text(hjust = 0.5)) + labs(x = "", y = "", title = "Spearman Correlation of each Score")
+ggplotly(p)
+```
+
+Relationship between PD duration and Score.
+
+```{r}
+D_temp = cbind(PD1_data$`PD Duration`,Temp)
+colnames(D_temp) = c("PD Duration",colnames(Temp))
+D_temp %>% as.data.frame() %>% gather("ScoreType","Value",-`PD Duration`) %>% na.omit() %>% ggplot() + geom_point(aes(x = `PD Duration`,y = `Value`)) + facet_grid(.~ `ScoreType`)
+```
+
+
+
+# Stools
+If two different measure of Contipation give consistent result?  
+```{r}
+Stool_Data = Data[,Stool]
+table(Stool_Data$`Constipation ID...72`,Stool_Data$`Constipation ID...168`) %>% kable() %>% kable_styling()
+```
+
+Two different measure of Constipation give different result..
+
+
+# SessionInfor
+```{r}
+sessionInfo()
+```
+
