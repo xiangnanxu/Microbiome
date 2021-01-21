@@ -1,0 +1,960 @@
+---
+title: "Microbiome PD analysis"
+author: "xxn"
+date: "`r paste0('Initiated on 2019 Oct 22')`"
+output:
+  html_document:
+    chunk_output_type: console
+    code_folding: hide
+    editor_options: null
+    fig_height: 8
+    fig_width: 8
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+    indent: True
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = F, message = F)
+```
+
+# Information from the Fastq file
+
+  In this part, we use package dada2 and phyloseq to precess the fastq file of our microbiome data to get OTU tables. All the results has been run in our server and here are some representitive results about reads and how we truncated the sequence.
+  
+```{r warning=FALSE,message=FALSE}
+library(tidyverse)
+library(phyloseq)
+library(dada2)
+library(DECIPHER)
+library(phangorn)
+library(gridExtra)
+library(plotly)
+library(ggplot2)
+library(readxl)
+library(kableExtra)
+library(knitr)
+library(janitor)
+library(psycho)
+library(vegan)
+library(ez)
+library(lme4)
+library(lmerTest)
+library(reshape2)
+library(hrbrthemes)
+library(colorspace)
+library(ggpubr)
+library(igraph)
+library(gridExtra)
+```
+
+```{r}
+set.seed(100)
+dir_path <- "./FASTQ_Generation_2019-08-25_12_19_07Z-1341381/"
+data_path <- list.files(dir_path)
+file_path <- c()
+fnFs <- c()
+fnRs <- c()
+sampleNames <- c()
+for (i in 1:(length(data_path) - 1)){
+  file_path[i] = paste0(dir_path,data_path[i],collapse = "/")
+  fnFs0 <- sort(list.files(file_path[i], pattern="_R1_001.fastq"))
+  fnRs0 <- sort(list.files(file_path[i], pattern="_R2_001.fastq")) 
+  fnFs[i] <- file.path(file_path[i], fnFs0)
+  fnRs[i] <- file.path(file_path[i], fnRs0)
+  sampleNames[i] <- strsplit(fnFs0, "_")[[1]][1]
+}
+```
+
+```{r}
+#pdf("plots.pdf", onefile = TRUE)
+#for (i in 1:length(fnFs)){
+#  p1 <-  plotQualityProfile(fnFs[i]) + geom_vline(xintercept = 37,color = "blue") +  geom_vline(xintercept = 270,color = "blue")
+#  p2 <- plotQualityProfile(fnRs[1]) + geom_vline(xintercept = 10,color = "blue") +  geom_vline(xintercept = 222,color = "blue")
+#  grid.arrange(p1, p2)
+#}
+#dev.off()
+
+```
+
+```{r}
+#out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(240,160),
+#              maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
+#              compress=TRUE, multithread=FALSE) 
+```
+
+```{r}
+
+```
+
+```{r}
+filt_path <- paste0(dir_path, "filtered",collapse = "")
+filtFs <- c()
+filtRs <- c()
+for(i in 1:(length(data_path) - 1)){
+  filtFs[i] <- file.path(filt_path,paste0(sampleNames[i], "_F_filt.fastq.gz"))
+  filtRs[i] <- file.path(filt_path,paste0(sampleNames[i], "_R_filt.fastq.gz"))
+}
+```
+
+```{r include=F}
+#out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(270,222),
+#                     trimLeft = c(37,10),maxN=0, maxEE=c(2,2), truncQ=2,
+#                     rm.phix=TRUE,compress=TRUE, multithread=F)
+```
+
+
+# Analysis with OTU tables
+
+```{r}
+load("otu_0.RData")
+seqtabNoC = res$OTU
+taxTab = res$taxTab
+fitGTR = res$fitGTR
+```
+
+```{r}
+sample_sp = strsplit(sampleNames,"-t-")
+sample_info = data.frame(id = 0,t = 0)
+for (i in 1:length(sample_sp)){
+  if(length(sample_sp[[i]]) == 2){
+    id = sample_sp[[i]][1]
+    id = sub(pattern = "-",replacement = "/",x = id)
+    sample_time = sample_sp[[i]][2]
+    if (sample_time == "minus2"){
+      sample_time = -2
+    }else if(is.na(as.numeric(sample_time))){
+      sample_time = 0
+    }else{
+      sample_time = as.numeric(sample_time)
+    }
+    
+  }else{
+    id = sample_sp[[i]][1]
+    sample_time = NA
+  }
+  sample_info = rbind(sample_info,c(id,sample_time))
+}
+sample_info = sample_info[-1,]
+rownames(sample_info) = sampleNames
+rownames(seqtabNoC) = sampleNames
+```
+
+```{r}
+Sample.info = readxl::read_xlsx("./Project Database t=0 - de-identified.xlsx",sheet = 1)
+```
+
+```{r}
+var_name = c("PD ID", "Age","Sex ID","Cohort Identifier ID","Height (cm)","Weight (kg)","BMI","Ethnicity ID", "Marital Status ID","Education ID","Employment ID","Income ID","Health Insurance ID","Support Services ID","Allied Health in Last Yr ID","Physio ID", "PD Duration","PD Phenotype ID","Late Onset >60 yrs ID","Genetic ID", "Rehabilitation ID", "Dyskinesia ID","On-Off Fluctuation ID","Wearing off ID","Anosmia ID", "Neuroleptic Use ID","PD FHx ID","Pesticide ID", "Current Smoker ID","Prior Smoker ID","Never Smoked ID" ,"No. Cups (day)","EtOH Consumption ID","EtOH < 1 weekly ID","EtOH 1-6 days week ID","EtOH Daily ID", "Diabetes ID","DM Duration (years)","HbA1c...109", "Medication PD Rx ID","L-Dopa ID","Duodopa ID","DBS ID","Apomorphine ID","Dopamine Agonist ID","MAOB ID","Anticholinergic ID","COMT ID","Amantidine ID", "Physical Functioning","Role Functioning_Physical","Energy_Fatigue","Emotional Well-being","Social Functioning","General Health","Health Change","Physical Component Summary"  ,"Pain","Chronic Pain ID","Pain Score","Walk 1 km ID","Climb 1 flight stairs ID","IPAQ MET-min/week","IPAQ Sitting hr/day","IPAQ Category Score ID", "Beck's Depression Inventory","Depressed ID","MOCA Visuospacial","MOCA Naming","MOCA Attention","MOCA Language","MOCA Abstraction","MOCA Delayed Recall","MOCA Orientation","MOCA total score","Mild Cognitive Impairment ID","PD Dementia ID", "Constipation ID...72","Constipation ID...168","Cleveland Constipation Score","Strinaing ID","Hard Stools ID","Incomplete Evacucation ID","Manual Manoeuvres ID","Spontaneous bowel mvts / week ID","Rome IV Total Score","LDQ Score","Most troublesome symptom ID","Bristol Score", "NMSS Cardiovascular","NMSS Sleep and fatigue","NMSS Mood and cognition","NMSS Perceptual problems","NMSS Attention and Memory","NMSS Gastrointestinal","NMSS Urinary","NMSS Sexual","NMSS Miscellaneous","NMSS Total Score", "PDQ Mobility","PDQ ADL","PDQ Emotions","PDQ Stigma","PDQ Social","PDQ Cognitions","PDQ Communication","PDQ Body Pain","PDQ Summary Index", "UPDRS Speech","UPDRS Facial Expression","UPDRS Rigidity","UPDRS Finger Tapping","UPDRS Hand Movements","UPDRS Pronation Supination","UPDRS Toe Tapping","UPDRS Leg Agility","UPDRS Rising from Chair","UPDRS Gait","UPDRS Freezing","UPDRS Postural Stability","UPDRS Posture","UPDRS Body Bradykinesia","UPDRS Postural Hand Tremor","UPDRS Kinetic Hand Tremor","UPDRS Rest Tremor","UPDRS Consistancy of Rest Tremor","UPDRS Total Score","Hoehn and Yahr Stage","ESR","CRP","Total Cholesterol", "LDL", "HDL", "Glucose", "Trigs", "HbA1c...240", "Albumin","ICD ID","RBD ID","OT ID","Speech Pathologist ID","Dietician ID","Pack YHx","Type of Tabaco ID","Last Abx use (months)","Telemedicine Interest ID","Distance to clinic (km)","Total LED (mg)","Head Trauma ID")
+
+idx = match(sample_info$id,Sample.info$`Neurogenetics ID`)
+
+sample_info = cbind(sample_info,Sample.info[idx,var_name])
+
+#colnames(sample_info)[1:2] = c("id","t","Sex","Age","PD","Cohort","PD_Age")
+colnames(sample_info)[c(1,2,5,4,3,6)] = c("id","t","Sex","Age","PD","Treatment")
+```
+
+```{r}
+ps0 <- phyloseq(otu_table(seqtabNoC, taxa_are_rows=FALSE), 
+               sample_data(sample_info), 
+               tax_table(taxTab),phy_tree(fitGTR$tree))
+temp_dim <- dim(ps0@otu_table)
+```
+
+  After processing the 282 fastq file, we got `r temp_dim[1]` samples and `r temp_dim[2]` OTUs.
+  
+## Filter OTUs and samples
+
+```{r}
+control = c("18-124-t-0","18-106-t-0","18-121-t-0","19-201-t-0","18-204-t-0","18-231-t-0","19-013-t-0","18-129-t-0","18-263-t-0","19-009-t-0")
+ps <- subset_samples(ps0, (!is.na(Age))&(!is.na(t))&(!is.na(PD))&(Treatment != "Longitudinal")&(t != 6)|(sample_names(ps0) %in% control))
+ps@sam_data$PD[is.na(ps@sam_data$PD)] = "no"
+ps@sam_data$Treatment[is.na(ps@sam_data$Treatment)] = "Longitudinal"
+```
+
+  In this study, we first consider 88 samples with 78 Parkinson’s disease patients and 10 controls. After processing, we get total `r length(sample_names(ps))` samples, with 4 replicates, say, 18-033-t-0-rpt2, 18-033-t-0-rpt3, 18-069-t-0-rpt2, 18-069-t-0-rpt3.
+  
+  Table below showed the number of OTUs in different levels.
+  
+```{r}
+D = data.frame(rank = rank_names(ps3), number = 0)
+for(i in 1:length(rank_names(ps3))){
+  D[i,2] = length(table(ps3@tax_table[,i]))
+}
+D %>% kable %>% kable_styling()
+```
+  
+  
+### Filter at Phylum level
+
+  We first filter OTUs at phylum level, say if the whole phylum showed low prevalance, all of the OTUs in this phylum will be removed.
+  
+```{r}
+ps <- subset_taxa(ps, !is.na(Phylum) & !Phylum %in% c("", "uncharacterized"))
+
+prevdf = apply(X = otu_table(ps),
+               MARGIN = ifelse(taxa_are_rows(ps), yes = 1, no = 2),
+               FUN = function(x){sum(x > 0)})
+
+prevdf = data.frame(Prevalence = prevdf,
+                    TotalAbundance = taxa_sums(ps),
+                    tax_table(ps))
+
+#colnames(prevdf) = c("Prevalence","Total Abundance")
+
+prevdf_phylum = plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
+
+colnames(prevdf_phylum) = c("Phylum","Mean of Prevalence", "Sum of Prevalence")
+
+prevdf_phylum %>% kable() %>% kable_styling()
+```
+
+  From this table, OTUs in 5 Phylum exclude from the analysis, say "Elusimicrobia", "Spirochaetes", "Candidatus_Saccharibacteria", "Fusobacteria",  "Cyanobacteria/Chloroplast", which has low mean and sum of prevalence. And the figures below showed the Total Abundance and Prevalence for each Phylum and each point represent an OTU.  
+
+```{r}
+filterPhyla = c("Elusimicrobia","Spirochaetes","Candidatus_Saccharibacteria","Cyanobacteria/Chloroplast")
+# Filter entries with unidentified Phylum.
+ps1 = subset_taxa(ps, !Phylum %in% filterPhyla)
+
+prevdf1 = subset(prevdf, Phylum %in% get_taxa_unique(ps1, "Phylum"))
+ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps),color=Phylum)) +
+  # Include a guess for parameter
+  geom_hline(yintercept = 0.1, alpha = 0.5, linetype = 2) +  geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() +  xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
+  facet_wrap(~Phylum) + theme(legend.position="none") + theme_bw()
+```
+
+### Filter at OTU level
+
+  We further filter the OTUs by their prevalence. Here we push a harsh threshold that prevalence larger than 0.1 (the dash line in figure above).
+
+```{r}
+prevalenceThreshold = floor(0.1 * nsamples(ps))
+keepTaxa = rownames(prevdf1)[(prevdf1$Prevalence >= prevalenceThreshold)]
+ps2 = prune_taxa(keepTaxa, ps)
+temp_dim = dim(ps2@otu_table)
+```
+
+finally we got `r temp_dim[1]` OTUs.
+
+### Filter Outliers at Abundance level
+  
+  Here, we plot the total abundance vary with time for each sample.
+  
+```{r}
+abundance_sample = as.data.frame(sample_sums(ps2))
+colnames(abundance_sample) = "Total_abundance"
+abundance_sample$t = ps2@sam_data$t
+abundance_sample$id = ps2@sam_data$id
+abundance_sample$treatment = ps2@sam_data$Treatment
+outliers_sample = abundance_sample[abundance_sample$Total_abundance<5000,]
+
+
+ggplot(abundance_sample) + geom_point(aes(x = t, y = Total_abundance, color = id)) + geom_line(aes(x = t, y = Total_abundance, group = id, color = id)) + theme_bw() + theme(legend.position = "none") + geom_text(data = outliers_sample, aes(x = outliers_sample$t , y = outliers_sample$Total_abundance +1000, label = rownames(outliers_sample)))
+```
+
+As is shown, total abundance of sample `r rownames(outliers_sample)[1]` is `r outliers_sample$Total_abundance[1]` which is extremely low. We consider this sample as outlier and exclude from further analysis. Total abundance of sample `r rownames(outliers_sample)[2]` is `r outliers_sample$Total_abundance[2]`, we cannot say it is outlier or not, so we keep it in the following analysis.
+
+```{r}
+ps3 = prune_samples(sample_names(ps2) != "18-203-t-2",ps2)
+ps3@sam_data$Treatment[ps3@sam_data$Treatment == "Longitudinal"] = "Control"
+```
+
+
+## Alpha diversity
+
+In this part, we consider the 2 kind of alpha diversity, shannon diversity and simpson diversity.
+
+```{r}
+library(vegan)
+```
+
+```{r}
+S_shannon <- vegan::diversity(ps3@otu_table, index = "shannon", MARGIN = 1)
+S_simpson <- vegan::diversity(ps3@otu_table, index = "simpson", MARGIN = 1)
+#S_invsimpson <- diversity(ps3@otu_table, index = "invsimpson", MARGIN = 1)
+```
+
+```{r}
+D_alpha <- ps3@sam_data
+D_alpha <- as.data.frame(as.matrix(D_alpha))
+D_shannon <- D_alpha
+D_shannon$shannon <- S_shannon
+D_simpson <- D_alpha
+D_simpson$simpson <- S_simpson
+#D_invsimpson <- D_alpha
+#D_invsimpson$invsimpson <- S_invsimpson
+
+
+
+ggplot(data = D_shannon) +  geom_point(aes(x = t, y = shannon, color = Treatment)) + geom_line(aes(x = t, y = shannon, color = Treatment, group = id)) + theme(axis.text.x = element_text(angle = 45)) +facet_wrap(~Treatment) + labs(title = "Plot of shannon alpha diversity") + theme_bw()
+
+ggplot(data = D_simpson) +  geom_point(aes(x = t, y = simpson, color = Treatment)) + geom_line(aes(x = t, y = simpson, color = Treatment, group = id)) + theme(axis.text.x = element_text(angle = 45)) +facet_wrap(~Treatment) + labs(title = "Plot of simpson alpha diversity") + theme_bw()
+
+#ggplot(data = D_invsimpson) +  geom_point(aes(x = t, y = invsimpson, color = Treatment)) + geom_line(aes(x = t, y = invsimpson, color = Treatment, group = id)) + theme(axis.text.x = element_text(angle = 45)) +facet_wrap(~Treatment) + labs(title = "Plot of inverse simpson alpha diversity") + theme_bw() 
+```
+
+### Whether the mean of alpha diversity different among time among treatment
+
+  Two test whether the mean of alpha diversity different with time/treatment effect, we consider a repeated measurement anova model(Linear Mixed model).
+
+  For shannon alpha diversity, the result are below.
+
+```{r}
+
+shannon_lme = D_shannon[D_shannon$Treatment != "Control",]
+fit_shannon <- lmer(formula = shannon ~ t * Treatment + (1|id), data = shannon_lme)
+
+summary(fit_shannon)
+
+```
+
+```{r}
+anova(fit_shannon)
+```
+
+    For simpson alpha diversity, the result are below.
+  
+```{r}
+
+simpson_lme = D_simpson[D_simpson$Treatment != "Control",]
+fit_simpson <- lmer(formula = simpson ~ t * Treatment + (1|id), data = simpson_lme)
+
+summary(fit_simpson)
+
+```
+
+```{r}
+anova(fit_simpson)
+```
+  
+  Result here showed that the mean of alpha diversity(both) do not show significant different with the change of time and treatment. Also the interaction between time and treatment is not significant with respect to the alpha diversity.
+
+  We also perform multiple Wilcox rank sum test to show this result. HeatMap here showed the p-value of comparisons between all combinations of time and treatment and the smallest p-value is 0.13.
+  
+```{r}
+pMatrix = matrix(1, ncol = 4*2, nrow = 4*2)
+time_table = c(-2,0,2,4)
+Treatment_table = c("Duodopa","DBS")
+D_allcomb = list()
+D_shannon_anova = D_shannon[,c("t","id","Treatment","shannon")]
+
+k = 1
+for (i in 1:4){
+  for (j in 1:2){
+    D_allcomb[[k]] = D_shannon_anova[(D_shannon_anova$t == time_table[i])&(D_shannon_anova$Treatment == Treatment_table[j]),]
+    
+    names(D_allcomb)[k] = paste0(Treatment_table[j],':',time_table[i])
+    
+    k = k+1
+  }
+}
+
+for (i in 1:(length(D_allcomb) - 1)){
+  for(j in (i + 1):(length(D_allcomb) )){
+    pMatrix[i,j] = wilcox.test(D_allcomb[[i]]$shannon,D_allcomb[[j]]$shannon)$p.value
+    pMatrix[j,i] = pMatrix[i,j]
+  }
+}
+colnames(pMatrix) = names(D_allcomb)
+rownames(pMatrix) = names(D_allcomb)
+
+```
+
+```{r}
+pMatrix_melt = melt(pMatrix)
+colnames(pMatrix_melt) = c("Group1","Group2","p-value")
+p = ggplot(pMatrix_melt) + geom_tile(aes(x = Group1,y = Group2,fill = `p-value`)) + scale_fill_viridis_c(limits = c(0,1)) + theme_ipsum()
+
+ggplotly(p)
+```
+
+  
+## Beta-diversity
+
+## PCoA of BC among different PD state.
+
+  We first plot the PCoA using the Bray-Curtis dissimilarity to see the global pattern of microbiome beta diversity. The rectangulars in the plot are the samples with replicates. We also draw lines along the time point for each sample. 
+
+```{r}
+pslog <- transform_sample_counts(ps3, function(x) log(1 + x))
+out.pcoa.log <- ordinate(pslog,  method = "MDS", distance = "bray")
+evals <- out.pcoa.log$values[,1]
+#plot_ordination(pslog, out.pcoa.log, color = "t",
+#                  shape = "Cohort") +
+#  labs(col = "Time", shape = "Cohort")+
+#  coord_fixed(sqrt(evals[2] / evals[1])) + theme_classic()
+
+
+df = cbind(out.pcoa.log$vectors[,1:2],ps3@sam_data) %>% group_by(id) %>% arrange(t,.by_group = TRUE)
+var_explained = out.pcoa.log$values$Relative_eig[1:2]
+
+
+with_rep1 = df %>% filter(id == ("18/033"))
+with_rep1 = with_rep1[,1:2]
+with_rep2 = df %>% filter(id == ("18/069"))
+with_rep2 = with_rep2[,1:2]
+
+ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = Treatment, shape = t)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = Treatment),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic() + annotate("rect", xmin = min(with_rep1[,1]), xmax = max(with_rep1[,1]), ymin = min(with_rep1[,2]), ymax = max(with_rep1[,2]),alpha = .2) + annotate("rect", xmin = min(with_rep2[,1]), xmax = max(with_rep2[,1]), ymin = min(with_rep2[,2]), ymax = max(with_rep2[,2]),alpha = .2)
+```
+  
+  From this figure, we can see: 1. the replicates for the sample is quite near, which means that the batch effect in this experiment is not significant. 2. the change beta-diversity varies from sample to sample, some patients are stable, while some changes a lot.  
+  
+  The PCoA using relative abundance showed similar results.
+  
+```{r}
+eps = 1e-7
+#ps3 <- prune_samples(sample_names(ps2) != "18-203-t-2",ps2)
+ps3ra <- transform_sample_counts(ps3, function(x){x / sum(x)})
+#ps3ralog <- transform_sample_counts(ps3ra, function(x){log(x + eps)})
+
+#ps3ralog <- microbiome::transform(ps3ra,"clr")
+ps3ra@sam_data$Treatment[ps3ra@sam_data$Treatment == "Longitudinal"] = "Control"
+out.pcoa3ra <- ordinate(ps3ra,  method = "MDS", distance = "bray")
+evals <- out.pcoa3ra$values[,1]
+#plot_ordination(ps3ra, out.pcoa3ra, color = "t",
+#                  shape = "Cohort") +
+#  labs(col = "Time", shape = "Cohort")+
+#  coord_fixed(sqrt(evals[2] / evals[1])) + theme_classic()
+
+
+
+df = cbind(out.pcoa3ra$vectors[,1:2],ps3@sam_data) %>% group_by(id) %>% arrange(t,.by_group = TRUE)
+var_explained = out.pcoa3ra$values$Relative_eig[1:2]
+
+
+with_rep1 = df %>% filter(id == ("18/033"))
+with_rep1 = with_rep1[,1:2]
+with_rep2 = df %>% filter(id == ("18/069"))
+with_rep2 = with_rep2[,1:2]
+
+ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = Treatment, shape = t)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = Treatment),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic() + annotate("rect", xmin = min(with_rep1[,1]), xmax = max(with_rep1[,1]), ymin = min(with_rep1[,2]), ymax = max(with_rep1[,2]),alpha = .2) + annotate("rect", xmin = min(with_rep2[,1]), xmax = max(with_rep2[,1]), ymin = min(with_rep2[,2]), ymax = max(with_rep2[,2]),alpha = .2)
+```  
+  
+  To get better comparison, in the following, we plot 2 PcoA: 1. only contain t=0/t=-2, which should involve small changes among time; 2.only contain t=0/t=4, which may have some large changes among time.
+  
+```{r}
+ps3ra2 <- subset_samples(ps3ra, t %in% c(-2,0))
+
+out.pcoa3ra2 <- ordinate(ps3ra2,  method = "MDS", distance = "bray")
+evals <- out.pcoa3ra2$values[,1]
+#plot_ordination(ps3ra2, out.pcoa3ra3, color = "Cohort",
+#                  shape = "t") +
+#  labs(col = "Cohort", shape = "Time")+
+#  coord_fixed(sqrt(evals[2] / evals[1])) + theme_classic()
+
+df = cbind(out.pcoa3ra2$vectors[,1:2],ps3ra2@sam_data) %>% group_by(id) %>% arrange(t,.by_group = TRUE)
+var_explained = out.pcoa3ra2$values$Relative_eig[1:2]
+
+
+with_rep1 = df %>% filter(id == ("18/033"))
+with_rep1 = with_rep1[,1:2]
+with_rep2 = df %>% filter(id == ("18/069"))
+with_rep2 = with_rep2[,1:2]
+
+ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = Treatment, shape = t)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = Treatment),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic() + annotate("rect", xmin = min(with_rep1[,1]), xmax = max(with_rep1[,1]), ymin = min(with_rep1[,2]), ymax = max(with_rep1[,2]),alpha = .2) + annotate("rect", xmin = min(with_rep2[,1]), xmax = max(with_rep2[,1]), ymin = min(with_rep2[,2]), ymax = max(with_rep2[,2]),alpha = .2)
+
+```
+  
+```{r}
+ps3ra3 <- subset_samples(ps3ra, ((t == 0))|(t == 4))
+
+out.pcoa3ra3 <- ordinate(ps3ra3,  method = "MDS", distance = "bray")
+
+df = cbind(out.pcoa3ra3$vectors[,1:2],ps3ra3@sam_data) %>% group_by(id) %>% arrange(t,.by_group = TRUE) 
+var_explained = out.pcoa3ra3$values$Relative_eig[1:2]
+
+
+with_rep1 = df %>% filter(id == ("18/033"))
+with_rep1 = with_rep1[,1:2]
+with_rep2 = df %>% filter(id == ("18/069"))
+with_rep2 = with_rep2[,1:2]
+
+ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = Treatment, shape = t)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = Treatment),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic() + annotate("rect", xmin = min(with_rep1[,1]), xmax = max(with_rep1[,1]), ymin = min(with_rep1[,2]), ymax = max(with_rep1[,2]),alpha = .2) + annotate("rect", xmin = min(with_rep2[,1]), xmax = max(with_rep2[,1]), ymin = min(with_rep2[,2]), ymax = max(with_rep2[,2]),alpha = .2)
+```
+
+  Compare these two figures, we can see that there the t=-2 and t=0 showed less change along time while t=0 and t=4 has more change. However, this change also showed sample specific.  
+  
+## Whether the relative abundance microbiome significantly different among time and treatment.  
+
+  To test the relative abundance of microbiome diiferent among time and treatment, we use adonis2 in vegan to test it. Here we perform this test on OTU, Genus and Family level.
+  
+  
+  
+```{r}
+ps4 <- subset_samples(ps3, Treatment != "Control")
+
+psgen <- tax_glom(ps4, taxrank = "Genus")
+psfam <- tax_glom(ps4, taxrank = "Family")
+
+pddisOTU <- vegdist(as.data.frame(as.matrix(otu_table(ps4))))
+pddisGen <- vegdist(as.data.frame(as.matrix(otu_table(psgen))))
+pddisFam <- vegdist(as.data.frame(as.matrix(otu_table(psfam))))
+```
+  
+  The result of adonis(permutation anova) at OTU level.  
+  
+```{r}
+adTPPD_noconf_OTUs <- adonis2(pddisOTU ~ sample_data(ps4)[["t"]] + sample_data(ps4)[["Treatment"]] , perm = 9999, by = "margin")
+adTPPD_noconf_OTUs
+```
+
+ The result of adonis at Genus level.  
+
+```{r}
+adTPPD_noconf_Gen <- adonis2(pddisGen ~ sample_data(psgen)[["t"]] +
+sample_data(psgen)[["Treatment"]], perm = 9999, by = "margin")
+adTPPD_noconf_Gen
+```
+
+ The result of adonis at Family level. 
+
+```{r}
+adTPPD_noconf_Fam <- adonis2(pddisGen ~ sample_data(psfam)[["t"]] +
+sample_data(psfam)[["Treatment"]], perm = 9999, by = "margin")
+adTPPD_noconf_Fam
+```
+
+  This three results show that in this permutation anova model, say consider the effect of time and treatment without interaction, the time effect is not significant while the treatment showed significantly different.  
+  
+  In order to avoid the interaction of time and treatment, we perform adonis for each treatment group, say DBS and Duodopa to see if in the same treatment group, whether beta-diversity showed different with time.  
+
+  The result of adnois within Treatment DBS.
+  
+```{r}
+pddisDBS <- vegdist(as.data.frame(as.matrix(otu_table(subset_samples(ps4,
+sample_data(ps4)$Treatment == "DBS")))))
+adonisTP_P <- adonis2(pddisDBS ~ t, data = as.data.frame(as.matrix(subset(ps4@sam_data, Treatment == "DBS"))), perm = 9999,by = "margin")
+adonisTP_P
+```
+
+  The result of adnois within Treatment Duodopa.
+
+```{r}
+pddisDdp <- vegdist(as.data.frame(as.matrix(otu_table(subset_samples(ps4,
+sample_data(ps4)$Treatment == "Duodopa")))))
+adonisTP_P <- adonis2(pddisDdp ~ t, data = as.data.frame(as.matrix(subset(ps4@sam_data, Treatment == "Duodopa"))), perm = 9999,by = "margin")
+adonisTP_P
+```
+  
+  The result here still show that the beta-diversity from time is not significant. Say, when we regard the treatment as a group, the patient's microbiome abundance is not significantly different from beta-diversity level.
+  
+  From the figures before, we may consider that the abundance of microbiome greatly different from person to person, so we use patient instead within each treatment to see if time show some effects on the microbiome abundance.
+  
+  The result of adnois for patient and time within DBS group at OTU level.
+  
+```{r}
+adTPPD_noconf_OTUs <- adonis2(pddisDBS ~ t + id, data = as.data.frame(as.matrix(subset(ps4@sam_data, Treatment == "DBS"))) , perm = 9999, by = "margin")
+adTPPD_noconf_OTUs
+```
+
+  The result of adnois for patient and time within Duodopa group at Genus level.
+
+```{r}
+adTPPD_noconf_Gen <- adonis2(pddisDdp ~ t + id, data = as.data.frame(as.matrix(subset(ps4@sam_data, Treatment == "Duodopa"))) , perm = 9999, by = "margin")
+adTPPD_noconf_Gen
+```
+
+
+
+  Here, we can see that when consider at OTU levels, consider the effect of patients, microbiome abundance show significantly different among time point within "DBS" group, while not significantly different withinin "Duodopa" group.
+
+# Relative Abundance analysis
+
+  We first draw the average relative abundance of 2 Treatment and 4 time point at order level.
+  
+```{r}
+psgen <- tax_glom(ps3, "Family")
+psgen_ra <- transform_sample_counts(psgen, function(x){x / sum(x)})
+```
+
+```{r}
+psgen_ra_melt <- psmelt(psgen_ra)
+```
+
+```{r}
+psgen_ra_melt1 = psgen_ra_melt[,c("id","Treatment","Order","t","Abundance")]
+psgen_ra_mean  = psgen_ra_melt1 %>% group_by(Treatment, t, Order) %>% summarise(Abundance = mean(Abundance))
+```
+  
+```{r}
+
+ggplot(psgen_ra_mean,aes(x = t,y = Abundance,fill = Order)) + geom_bar(stat = "identity", width = 1) + scale_fill_manual(values = rainbow(length(unique(psgen_ra_mean$Order)))) + theme_classic() + labs(title = "Average Relative Abundance at Order level") + facet_wrap(~Treatment)
+
+```
+
+  From this graph, we can see that the relative abundance at phylum level indeed change along time and treatment. Some phylum such as "Verrucomicrobia", showed different at t=4 for different treatment. In order to better understanding the relationship between each phylum and how it relative abundance change with time and treatment, we use a aldex model at phylum level.
+
+```{r}
+library(ALDEx2)
+```
+
+```{r}
+gen_table = t(as.data.frame(psgen@otu_table))
+rownames(gen_table) = psgen@tax_table[,3]
+meta_data = psgen@sam_data
+```
+
+
+
+```{r}
+mm <- model.matrix(~ t + Treatment + t:Treatment, as.data.frame(as.matrix(meta_data)))
+gen_clr <- aldex.clr(gen_table, mm, mc.samples = 128, denom = "all")
+```
+
+```{r}
+glm.test <- aldex.glm(gen_clr)
+```
+
+```{r}
+glm.test[,c(4,8,12,16,20,24,28,32,36:45)] %>% kable() %>% kable_styling()
+```
+
+  From this result, we can see that time effect(model.t0,model.t2,model.t4) the p-values for all the phylum are large. While for the treatment, Phylum "Verrucomicrobia" and "Proteobacteria" showed a relatively small p-value. These two Phylums showed different for Duodopa and DBS.
+  
+# A brief summary
+
+  In this analysis, we focus on the change of mean for both alpha diversity and the overall (relative) abundance with time point and treatment. 
+  
+- For alpha-diversity, the change of mean along time and between treatment and their interaction is not significant. 
+
+- For (realtive) abundance which we use adonis(permutation anova), the result showed that significant between treatment but not time. When we consider within each treatment group and consider the change of time with respect to each individual, DBS showed significantly different while Duodopa not.
+
+- For compositional analysis, we use the Aldex2 to analysis the change of abundance for each phylum along time and treatment, the result showed that only a small fraction of phylum ("Verrucomicrobia" and "Proteobacteria") change significantly with treatment.
+
+# Appendix: Check about the zymo-plate
+
+```{r}
+zymo_name = c("Zymo-plate-1","Zymo-plate-2","Zymo-plate-3")
+ps_zymo = subset_samples(ps0,sample_names(ps0) %in% zymo_name)
+```
+
+```{r}
+ps_zymo_ra = transform_sample_counts(ps_zymo, function(x){x / sum(x)})
+zymo_melt = psmelt(ps_zymo_ra)
+zymo <- zymo_melt %>% group_by(id,Genus) %>% summarise(Abundance = sum(Abundance))
+zymo <- zymo %>% filter(Abundance > 1e-3)
+temp <- as.character(zymo$Genus)
+temp[is.na(temp)] = "Others"
+zymo$Genus <- as.factor(temp)
+ggplot(zymo,aes(x = id,y = Abundance,fill = Genus)) + geom_bar(stat = "identity", width = 1) + scale_fill_manual(values = rainbow(9)) + theme_classic() + labs(title = "Zymo")
+```
+
+  Here we see that the zymo plates in our experiment are quite stable. As we already know the relative abundance of zymo plate, here we perform a wilcoxon signed rank test to see whether the relative composition of each genus the same as the true one.  
+  
+```{r}
+true_ra <- c(0.12, 0.12, 0.12, 0.12, 0.12, 0.12, 0.12, 0.12, 0.04)
+names(true_ra) <- c("Bacillus", "Enterococcus", "Escherichia/Shigella", "Lactobacillus", "Listeria", "Pseudomonas", "Salmonella","Staphylococcus", "Others")
+
+
+zymo_test <- c()
+for (i in 1:9){
+  x_temp <- zymo$Abundance[zymo$Genus == names(true_ra)[i]]
+  y_temp <- rep(true_ra[i],length(x_temp))
+  zymo_test[i] <- wilcox.test(x_temp,y_temp,paired = T)$p.value
+}
+
+zymo_summary <- zymo %>% group_by(Genus) %>% summarise(mean = mean(Abundance), sd = sd(Abundance))
+zymo_summary$Genus <- as.character(zymo_summary$Genus)
+zymo_summary$standard <- true_ra[zymo_summary$Genus]
+zymo_summary$pvalue <- zymo_test
+
+zymo_summary %>% kable() %>% kable_styling()
+```
+
+
+# Analysis of potential confounder based on PcoA plot
+```{r}
+ps3ra2 <- subset_samples(ps3ra, t %in% c(-2,0,2,4))
+
+out.pcoa3ra2 <- ordinate(ps3ra2,  method = "MDS", distance = "bray")
+evals <- out.pcoa3ra2$values[,1]
+#plot_ordination(ps3ra2, out.pcoa3ra3, color = "Cohort",
+#                  shape = "t") +
+#  labs(col = "Cohort", shape = "Time")+
+#  coord_fixed(sqrt(evals[2] / evals[1])) + theme_classic()
+
+df = cbind(out.pcoa3ra2$vectors[,1:2],ps3ra2@sam_data) %>% group_by(id) %>% arrange(t,.by_group = TRUE)
+var_explained = out.pcoa3ra2$values$Relative_eig[1:2]
+
+
+with_rep1 = df %>% filter(id == ("18/033"))
+with_rep1 = with_rep1[,1:2]
+with_rep2 = df %>% filter(id == ("18/069"))
+with_rep2 = with_rep2[,1:2]
+
+ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = Treatment, shape = t)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = Treatment),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic()
+```
+
+```{r}
+df0 = df %>% group_by(id, t) %>% summarise(Axis.1 = mean(Axis.1), Axis.2 = mean(Axis.2))
+
+df1 = df0 %>% group_by(id) %>% summarise(n())
+
+#df1 = df0 %>% filter(id %in% df1$id[df1$`n()` == 3])
+df1 = df0
+
+dist_temp <- function(x,y){
+  return(sqrt((x[1]-x[2])^2 + (y[1] - y[2])^2))
+}
+
+
+df20 = df1 %>% filter((t == -2)|(t == 0)) %>%  group_by(id) %>% summarise(d_20 = dist_temp(Axis.1,Axis.2))
+df21 = df1 %>% filter((t == 0)|(t == 2)) %>%  group_by(id) %>% summarise(d02 = dist_temp(Axis.1,Axis.2))
+df22 = df1 %>% filter((t == 0)|(t == 4)) %>%  group_by(id) %>% summarise(d04 = dist_temp(Axis.1,Axis.2))
+df23 = df1 %>% filter((t == 2)|(t == 4)) %>%  group_by(id) %>% summarise(d24 = dist_temp(Axis.1,Axis.2))
+id = unique(df$id[df$Treatment != "Control"])
+
+df2 = data.frame(id = id, d_20 = df20$d_20[match(id,df20$id)], d02 = df21$d02[match(id,df21$id)],d04 = df22$d04[match(id,df22$id)], d24 = df23$d24[match(id,df23$id)])
+
+```
+
+```{r}
+df_dist <- df2 %>% mutate(Treatment = df$Treatment[match(id,df$id)]) %>% gather("dist_type","value",-c(id,Treatment))
+ggplot(data = df_dist) +  geom_point(aes(x = dist_type, y = value, color = Treatment)) + geom_line(aes(x = dist_type, y = value, color = Treatment, group = id)) + theme(axis.text.x = element_text(angle = 45)) +facet_wrap(~Treatment) + labs(title = "Plot of distance in PCoA plot") + theme_bw()
+```
+
+If we consider the distance of point changed in PcoA plot as an "index", it's hard to tell if DBS or Duodopa change more. To further analysis, we consider these distances as response to see which Clinical variables most related to these changes.
+
+
+```{r message=F,warning=F,error=F,echo=F}
+df3 = df %>% filter((id %in% df2$id) & (t == 0)) %>% select(-c("Axis.1","Axis.2")) %>% ungroup()
+df3 <- data.frame(df3[!duplicated(df3$id),])
+confounder_p <- data.frame(var_name = "",test_type = "",p_20 = 1, p02 = 1, p04 = 1, p24 = 1)
+
+y1 <- df2$d_20
+y2 <- df2$d02
+y3 <- df2$d04
+y4 <- df2$d24
+
+for (i in 4:ncol(df3)){
+  temp_varname = colnames(df3)[i]
+  x <- df3[match(id,df3$id),i]
+  df_temp_20 <- na.omit(data.frame(y = y1,x = x))
+  df_temp_02 <- na.omit(data.frame(y = y2,x = x))
+  df_temp_04 <- na.omit(data.frame(y = y3,x = x))
+  df_temp_24 <- na.omit(data.frame(y = y4,x = x))
+
+  if (class(x) == "numeric"){
+    temp_testtype = "cor.test"
+    p_20 = suppressMessages(try(cor.test(y = df_temp_20[,1], x = df_temp_20[,2], method = "spearman")$p.value,silent = T))
+    p_02 = suppressMessages(try(cor.test(y = df_temp_02[,1], x = df_temp_02[,2], method = "spearman")$p.value,silent = T))
+    p_04 = suppressMessages(try(cor.test(y = df_temp_04[,1], x = df_temp_04[,2], method = "spearman")$p.value,silent = T))
+    p_24 = suppressMessages(try(cor.test(y = df_temp_24[,1], x = df_temp_24[,2], method = "spearman")$p.value,silent = T))
+    
+    
+  }else if (length(levels(as.factor(x))) == 2){
+    temp_testtype = "wilcox"
+    p_20 = suppressMessages(try(wilcox.test(df_temp_20[,1] ~ as.factor(df_temp_20[,2]))$p.value,silent = T))
+    p_02 = suppressMessages(try(wilcox.test(df_temp_02[,1] ~ as.factor(df_temp_02[,2]))$p.value,silent = T))
+    p_04 = suppressMessages(try(wilcox.test(df_temp_04[,1] ~ as.factor(df_temp_04[,2]))$p.value,silent = T))
+    p_24 = suppressMessages(try(wilcox.test(df_temp_24[,1] ~ as.factor(df_temp_24[,2]))$p.value,silent = T))
+  }else{
+    temp_testtype = "anova"
+    p_20 = suppressMessages(try(anova(aov(df_temp_20[,1] ~ as.factor(df_temp_20[,2])))$`Pr(>F)`[1],silent = T))
+    p_02 = suppressMessages(try(anova(aov(df_temp_02[,1] ~ as.factor(df_temp_02[,2])))$`Pr(>F)`[1],silent = T))
+    p_04 = suppressMessages(try(anova(aov(df_temp_04[,1] ~ as.factor(df_temp_04[,2])))$`Pr(>F)`[1],silent = T))
+    p_24 = suppressMessages(try(anova(aov(df_temp_24[,1] ~ as.factor(df_temp_24[,2])))$`Pr(>F)`[1],silent = T))
+  }
+  if (class(p_20) == "try-error" | class(p_02) == "try-error" | class(p_24) == "try-error"|class(p_04) == "try-error"){
+    temp_testtype = "none"
+    p_20 = 1
+    p_02 = 1
+    p_04 = 1
+    p_24 = 1
+  }
+  temp <- data.frame(var_name = temp_varname,test_type = temp_testtype, p_20 = p_20, p02 = p_02,p04 = p_04, p24 = p_24)
+  confounder_p <- rbind(confounder_p, temp)
+}
+confounder_p = confounder_p[-1,]
+
+```
+
+Here we do several test for each distance in PCoA and clinical variables: if the clinical variable is continuous, we test whether their spearman correlation is 0; if the clinical variable is categorical, we test whether the sample group by clinical variable made the distance different using wilcox test or anova.
+
+The following graph showed the result, each point represent a clinical variable; xaxis is the -log(pvalue) for distance t=0 and t=2, yaxis is the -log(pvalue) for distance t=2 and t=4 and the color is coded by -log(pvalue) for distance t=0 and t=-2.  
+
+A desired point here is: large in x-axis and y-axis(the change of this clinical variable highly correlated with distance in PCoA, or different group of the clinical variable significantly changed in PCoA for t=0 vs t=2, t=2 vs t=4) "blue" colored (this clinical variables cannot distinguish t=-2 and t=0).
+
+```{r}
+confounder_p1 <- confounder_p
+confounder_p1[,c(3:5)] <- -log(confounder_p1[,c(3:5)])
+
+jet.colors <- colorRampPalette(c("#00007F", "blue", "#007FFF", "cyan", "#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000"))
+
+confounder_p2 <- confounder_p1 %>% filter((p02 > -log(0.05))&(p24 > -log(0.05)))
+
+p = ggplot(confounder_p1) + geom_point(aes(x = p02, y = p24, color = p_20, label = var_name)) + geom_vline(aes(xintercept = -log(0.05))) + geom_hline(aes(yintercept = -log(0.05))) + scale_color_gradientn(colors = jet.colors(256)) + labs(x = "-log(p02)", y = "-log(p24)", color = "-log(p_20)") + theme_classic()
+
+ggplotly(p)
+```
+
+Here, we showed some of the interested clinical variables coloredin PCoA plot.
+
+```{r}
+ps3ra2 <- subset_samples(ps3ra, t %in% c(-2,0,2,4))
+
+out.pcoa3ra2 <- ordinate(ps3ra2,  method = "MDS", distance = "bray")
+evals <- out.pcoa3ra2$values[,1]
+#plot_ordination(ps3ra2, out.pcoa3ra3, color = "Cohort",
+#                  shape = "t") +
+#  labs(col = "Cohort", shape = "Time")+
+#  coord_fixed(sqrt(evals[2] / evals[1])) + theme_classic()
+
+df = cbind(out.pcoa3ra2$vectors[,1:2],ps3ra2@sam_data) %>% group_by(id) %>% arrange(t,.by_group = TRUE)
+var_explained = out.pcoa3ra2$values$Relative_eig[1:2]
+
+
+with_rep1 = df %>% filter(id == ("18/033"))
+with_rep1 = with_rep1[,1:2]
+with_rep2 = df %>% filter(id == ("18/069"))
+with_rep2 = with_rep2[,1:2]
+
+p1 <- ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = Constipation.ID...72, shape = Constipation.ID...168)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = Constipation.ID...72),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic()
+
+p2 <- ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = Bristol.Score, shape = t)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = Bristol.Score),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic() + scale_color_gradientn(colors = jet.colors(256))
+
+p3 <- ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = Most.troublesome.symptom.ID, shape = t)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = Most.troublesome.symptom.ID),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic()
+
+p4 <- ggplot(df) + geom_point(aes(x = Axis.1, y = Axis.2, color = NMSS.Total.Score, shape = t)) + geom_path(aes(x = Axis.1, y = Axis.2, group = id, colour = NMSS.Total.Score),  alpha = 0.5, size = 1) + labs(x = paste0("[Axis.1] ", 100*round(var_explained[1],digits = 4), "%"), y = paste0("[Axis.2] ", 100*round(var_explained[2],digits = 4), "%")) +  theme_classic() + scale_color_gradientn(colors = jet.colors(256))
+
+p1
+p2
+p3
+p4
+```
+
+# Compare at Genus level
+
+  In this part, we tried to compare the differentially Genus among time and Treatment. The model we used here still compositional model Aldex2. The figures below showed the pvalue for each Genus.
+  
+  In this graph, each point represent a Genus, xaxis and yaxis are the -log(pvalue) for Treatment effect for t=0 vs. t=-2; t=0 vs. t=2; t=0 vs. t=4 (The variance of time effect has been changed). In this graph, axias is the pvalue for t=0 vs. t=-2 which serve as a baseline, yaxis is the pvalue for t=0 vs t=2 and t=0 vs. t=4 coded with color.
+  
+  If a genus not significant in the comparison t=0 vs. t=-2 while significant in the comparison t=0 vs. t=2, this genus may be more "meaningful". However, from this graph, most of the pvalue for different comparison with t=0 as baseline showed similar result.  
+
+```{r}
+psgen <- tax_glom(ps3, "Genus")
+```
+
+
+```{r}
+psgen <- subset_samples(psgen, Treatment != "Control")
+pOTUs <- function(psgen, t1, t2){
+
+  psgen1 <- subset_samples(psgen, (t == t1)|(t == t2))
+  gen_table = t(as.data.frame(psgen1@otu_table))
+  rownames(gen_table) = psgen1@tax_table[,6]
+  meta_data = psgen1@sam_data
+  meta_data1 <- as.data.frame(as.matrix(meta_data))
+  meta_data1$t <- factor(meta_data1$t,levels = c(t1,t2))
+  meta_data1$Treatment <- as.factor(as.character(meta_data1$Treatment))
+  
+  mm <- model.matrix(id ~  Treatment, meta_data1)
+  gen_clr <- aldex.clr(gen_table, mm, mc.samples = 128, denom = "all")
+  
+  glm.test <- aldex.glm(gen_clr)
+  
+  return(glm.test$`model.TreatmentDuodopa Pr(>|t|)`)
+}
+
+```
+
+
+
+
+
+```{r}
+t1 = 0
+t2 = c(-2,2,4)
+p_20 <- pOTUs(psgen = psgen, t1 = t1, t2 = t2[1])
+p02 <- pOTUs(psgen = psgen, t1 = t1, t2 = t2[2])
+p04 <- pOTUs(psgen = psgen, t1 = t1, t2 = t2[3])
+```
+
+```{r}
+p_Treatment <- data.frame(Genus = rep(as.data.frame(as.matrix(psgen@tax_table))[,6],2), p1 = rep(p_20,2), p2 = c(p02,p04), type = c(rep("p02",length(p02)),rep("p04",length(p04))))
+
+```
+
+```{r}
+p = ggplot(p_Treatment) + geom_point(aes(x = -log(p1), y = -log(p2), color = type,  label = Genus)) + geom_abline(aes(intercept = 0, slope = 1)) + theme_classic()
+ggplotly(p)
+```
+
+
+
+# A graph based method
+
+```{r}
+library(SpiecEasi)
+```
+
+```{r}
+plotSpiec <- function(ps3, propthresh = 0.3, nlambda = 10, color = "Phylum"){
+  
+  prevalenceThreshold = floor(propthresh * nsamples(ps3))
+  keepTaxa = rownames(prevdf1)[(prevdf1$Prevalence >= prevalenceThreshold)]
+  ps31 = prune_taxa(keepTaxa, ps3)
+  se.ps3 <- spiec.easi(ps31, method='mb', lambda.min.ratio=1e-2,
+                      nlambda=nlambda)
+  taxa_names(ps31) <- paste0("otu",1:length(taxa_names(ps31)))
+  ig2.mb <- adj2igraph(getRefit(se.ps3),  vertex.attr=list(name = taxa_names(ps31)))
+  p = plot_network(ig2.mb, ps31, type='taxa', color = color)
+  return(p)
+}
+
+```
+
+```{r}
+#ps3_t_2_DBS <- subset_samples(ps3, (t == -2)&(Treatment == "DBS"))
+#ps3_t_2_DDP <- subset_samples(ps3, (t == -2)&(Treatment == "Duodopa"))
+#ps3_t0_DBS <- subset_samples(ps3, (t == 0)&(Treatment == "DBS"))
+#ps3_t0_DDP <- subset_samples(ps3, (t == 0)&(Treatment == "Duodopa"))
+#ps3_t2_DBS <- subset_samples(ps3, (t == 2)&(Treatment == "DBS"))
+#ps3_t2_DDP <- subset_samples(ps3, (t == 2)&(Treatment == "Duodopa"))
+#ps3_t4_DBS <- subset_samples(ps3, (t == 4)&(Treatment == "DBS"))
+#ps3_t4_DDP <- subset_samples(ps3, (t == 4)&(Treatment == "Duodopa"))
+#ps3_DBS <- subset_samples(ps3, (Treatment == "DBS"))
+#ps3_DDP <- subset_samples(ps3, (Treatment == "Duodopa"))
+#ps3_t_2 <- subset_samples(ps3, (t == -2))
+#ps3_t0 <- subset_samples(ps3, (t == 0))
+#ps3_t2 <- subset_samples(ps3, (t == 2))
+#ps3_t4 <- subset_samples(ps3, (t == 4))
+```
+
+```{r}
+#p1 <- plotSpiec(ps3_t_2_DBS)
+#p2 <- plotSpiec(ps3_t_2_DDP)
+#p3 <- plotSpiec(ps3_t0_DBS)
+#p4 <- plotSpiec(ps3_t0_DDP)
+#p5 <- plotSpiec(ps3_t2_DBS)
+#p6 <- plotSpiec(ps3_t2_DDP)
+#p7 <- plotSpiec(ps3_t4_DBS)
+#p8 <- plotSpiec(ps3_t4_DDP)
+#p1 <- plotSpiec(ps3_DBS)
+#p2 <- plotSpiec(ps3_DDP)
+#p1 <- plotSpiec(ps3_t_2)
+#p2 <- plotSpiec(ps3_t0)
+#p3 <- plotSpiec(ps3_t2)
+#p4 <- plotSpiec(ps3_t4)
+p <- plotSpiec(ps3)
+```
+
+```{r}
+p
+```
+
+  In this part, we tried to build networks at OTU levelt to see their relationships. If two OTUs are not connected, they are conditionally independant. However, this OTU network is constructed using all samples. In fact, We also tried subset of samples to construct different networks, however, the structure of network is not sparse and hard to find useful information. 
+
+# Session info
+```{r}
+sessionInfo()
+```
+
+

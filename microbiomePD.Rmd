@@ -1,0 +1,204 @@
+---
+title: "16S"
+author: "xxn"
+date: "2019???9???5???"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r warning=FALSE,message=FALSE}
+library(tidyverse)
+library(phyloseq)
+library(dada2)
+library(DECIPHER)
+library(phangorn)
+library(gridExtra)
+library(plotly)
+library(ggplot2)
+```
+
+
+```{r}
+
+set.seed(100)
+dir_path <- "./FASTQ_Generation_2019-08-25_12_19_07Z-1341381/"
+data_path <- list.files(dir_path)
+file_path <- c()
+fnFs <- c()
+fnRs <- c()
+sampleNames <- c()
+for (i in 1:(length(data_path) - 1)){
+  file_path[i] = paste0(dir_path,data_path[i],collapse = "/")
+  fnFs0 <- sort(list.files(file_path[i], pattern="_R1_001.fastq"))
+  fnRs0 <- sort(list.files(file_path[i], pattern="_R2_001.fastq")) 
+  fnFs[i] <- file.path(file_path[i], fnFs0)
+  fnRs[i] <- file.path(file_path[i], fnRs0)
+  sampleNames[i] <- strsplit(fnFs0, "_")[[1]][1]
+}
+```
+
+```{r}
+p = plotQualityProfile(fnFs[56]) + geom_vline(xintercept = 37,color = "blue") +  geom_vline(xintercept = 270,color = "blue")
+ggplotly(p)
+```
+```{r}
+p = plotQualityProfile(fnRs[56]) + geom_vline(xintercept = 10,color = "blue") +  geom_vline(xintercept = 222,color = "blue")
+ggplotly(p)
+```
+
+```{r}
+filt_path <- paste0(dir_path, "filtered",collapse = "")
+filtFs <- c()
+filtRs <- c()
+for(i in 1:(length(data_path) - 1)){
+  filtFs[i] <- file.path(filt_path,paste0(sampleNames[i], "_F_filt.fastq.gz"))
+  filtRs[i] <- file.path(filt_path,paste0(sampleNames[i], "_R_filt.fastq.gz"))
+}
+```
+
+```{r}
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(270,222),
+                     trimLeft = c(37,10),maxN=0, maxEE=c(2,2), truncQ=2,
+                     rm.phix=TRUE,compress=TRUE, multithread=F)
+```
+
+```{r}
+head(out)
+```
+
+```{r}
+derepFs <- derepFastq(filtFs, verbose=F)
+derepRs <- derepFastq(filtRs, verbose=F)
+```
+
+```{r}
+errF <- learnErrors(filtFs, multithread=F)
+```
+```{r}
+errR <- learnErrors(filtRs, multithread=F)
+```
+
+```{r}
+dadaFs <- dada(derepFs, err=errF, multithread=F)
+```
+```{r}
+dadaRs <- dada(derepRs, err=errR, multithread=F)
+```
+
+```{r}
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs)
+```
+
+```{r}
+seqtabAll <- makeSequenceTable(mergers[!grepl("Mock", names(mergers))])
+```
+
+```{r}
+load("out_0.RData")
+seqtabNoC = res$OTUtable
+taxTab = res$tax
+```
+
+```{r}
+sample_sp = strsplit(sampleNames,"-t-")
+sample_info = data.frame(id = 0,t = 0)
+for (i in 1:length(sample_sp)){
+  if(length(sample_sp[[i]]) == 2){
+    id = sample_sp[[i]][1]
+    id = sub(pattern = "-",replacement = "/",x = id)
+    sample_time = sample_sp[[i]][2]
+    if (sample_time == "minus2"){
+      sample_time = -2
+    }else if(is.na(as.numeric(sample_time))){
+      sample_time = 0
+    }else{
+      sample_time = as.numeric(sample_time)
+    }
+    
+  }else{
+    id = sample_sp[[i]][1]
+    sample_time = NA
+  }
+  sample_info = rbind(sample_info,c(id,sample_time))
+}
+sample_info = sample_info[-1,]
+rownames(sample_info) = sampleNames
+rownames(seqtabNoC) = sampleNames
+```
+
+```{r}
+library(readxl)
+Sample.info = readxl::read_xlsx("../Project Database t=0 - de-identified.xlsx",sheet = 1)
+
+idx = match(sample_info$id,Sample.info$`Neurogenetics ID`)
+
+sample_info = cbind(sample_info,Sample.info[idx,c("Sex ID","Age","PD Status ID","Cohort Identifier ID","PD Age Dx")])
+colnames(sample_info) = c("id","t","Sex","Age","PD","Cohort","PD_Age")
+```
+
+
+
+
+```{r}
+library(phyloseq)
+ps = phyloseq(otu_table(seqtabNoC,taxa_are_rows=FALSE),
+              sample_data(sample_info),
+              tax_table(taxTab))
+```
+
+Filter on Phylum level
+
+```{r}
+ps <- subset_taxa(ps, !is.na(Phylum) & !Phylum %in% c("", "uncharacterized"))
+
+prevdf = apply(X = otu_table(ps),
+               MARGIN = ifelse(taxa_are_rows(ps), yes = 1, no = 2),
+               FUN = function(x){sum(x > 0)})
+
+prevdf = data.frame(Prevalence = prevdf,
+                    TotalAbundance = taxa_sums(ps),
+                    tax_table(ps))
+plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
+
+```
+```{r}
+filterPhyla = c("Elusimicrobia")
+# Filter entries with unidentified Phylum.
+ps1 = subset_taxa(ps, !Phylum %in% filterPhyla)
+
+prevdf1 = subset(prevdf, Phylum %in% get_taxa_unique(ps1, "Phylum"))
+ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps),color=Phylum)) +
+  # Include a guess for parameter
+  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) +  geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() +  xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
+  facet_wrap(~Phylum) + theme(legend.position="none")
+```
+
+Filter on otu level
+```{r}
+prevalenceThreshold = floor(0.05 * nsamples(ps))
+keepTaxa = rownames(prevdf1)[(prevdf1$Prevalence >= prevalenceThreshold)]
+ps2 = prune_taxa(keepTaxa, ps)
+
+```
+A quick PCoA
+```{r}
+pslog <- transform_sample_counts(ps, function(x) log(1 + x))
+
+ps_filter <- subset_samples(pslog, (!is.na(Age))&(!is.na(t))&(!is.na(PD))&(Cohort != "Longitudinal")&(t != 6))
+
+out.pcoa.log <- ordinate(ps_filter,  method = "MDS", distance = "bray")
+evals <- out.pcoa.log$values[,1]
+plot_ordination(ps_filter, out.pcoa.log, color = "t",
+                  shape = "Cohort") +
+  labs(col = "Time", shape = "Cohort")+
+  coord_fixed(sqrt(evals[2] / evals[1]))
+```
+
+```{r}
+
+```
+
